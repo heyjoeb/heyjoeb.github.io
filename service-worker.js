@@ -1,1 +1,98 @@
-"use strict";console.log("WORKER: executing.");var version="v1::",offlineFundamentals=["","css/global.css","js/global.js"];self.addEventListener("install",function(e){console.log("WORKER: install event in progress."),e.waitUntil(caches.open(version+"fundamentals").then(function(e){return e.addAll(offlineFundamentals)}).then(function(){console.log("WORKER: install completed")}))}),self.addEventListener("fetch",function(e){return console.log("WORKER: fetch event in progress."),"GET"!==e.request.method?void console.log("WORKER: fetch event ignored.",e.request.method,e.request.url):void e.respondWith(caches.match(e.request).then(function(n){function t(n){var t=n.clone();return console.log("WORKER: fetch response from network.",e.request.url),caches.open(version+"pages").then(function(n){n.put(e.request,t)}).then(function(){console.log("WORKER: fetch response stored in cache.",e.request.url)}),n}function o(){return console.log("WORKER: fetch request failed in both cache and network."),new Response("<h1>Service Unavailable</h1>",{status:503,statusText:"Service Unavailable",headers:new Headers({"Content-Type":"text/html"})})}var s=fetch(e.request).then(t,o)["catch"](o);return console.log("WORKER: fetch event",n?"(cached)":"(network)",e.request.url),n||s}))}),self.addEventListener("activate",function(e){console.log("WORKER: activate event in progress."),e.waitUntil(caches.keys().then(function(e){return Promise.all(e.filter(function(e){return!e.startsWith(version)}).map(function(e){return caches["delete"](e)}))}).then(function(){console.log("WORKER: activate completed.")}))});
+//These resources are cached during the install event; waitUntil ensures that the pages are cached before installation is completed:
+// A list of paths to cache
+  var paths = [
+    'index.html',
+    'datos.csv',
+    'styles/main.css',
+    'scripts/main.js',
+    'scripts/vendor.js',
+    'fonts/fontawesome-webfont.ttf',
+    'images/icon01.png',
+    'images/icon02.png',
+    'images/icon03.png',
+    'images/layers.png',
+    'images/layers-2x.png',
+    'images/marker-icon.png',
+    'images/marker-icon-2x.png',
+    'images/marker-shadow.png',
+    'images/hoyoSoplador.jpg'
+  ];
+  // Open the cache (and name it)
+  self.addEventListener('install', function(event) {
+    event.waitUntil(
+      caches.open('offline-v1')
+        .then(function(cache) {
+          return cache.addAll(paths);
+        })
+    );
+    event.waitUntil(self.skipWaiting());
+  });
+
+  // listen out for messages from the web page, using the message event:
+  self.addEventListener('message', function(event) {
+    //do something with the message event.data
+  })
+
+  // For each URL we cache, we’ll want to cache its image assets, or it will look broken when served from cache, so we must take a look at the response, and also add any images included in the content to the cache:
+  function fetchAndCache(url, cache) {
+    return fetch(url).then(function (response) {
+        if (response.status < 400) {
+            console.log('got '+url);
+            cache.put(url, response.clone());
+        }
+        return response.text();
+    })
+  }
+
+  self.addEventListener('message', function(event) {
+    console.log('SW got message:'+event.data.command);
+    switch (event.data.command) {
+      case 'offline-opt-in':
+    
+        // Cache homepage
+        caches.open('static-v1').then(function(cache) {
+          fetch('/').then(function(response) {
+              fetchAndCache('/', cache);
+              return response.text();
+            })
+            .then(function(text) {
+              var pattern = /a href="([^'"]+)" class="item-title"/g;
+              var urls = getMatches(text, pattern, 1);
+              console.log('caching: ' + urls);
+              
+              for(var i=0;i<urls.length;i++) {
+                console.log('fetching '+urls[i]);
+                fetchAndCache(urls[i], cache);
+              }
+ 
+            })
+        });
+        break;
+    } 
+  });
+
+  //helper
+function getMatches(string, regex, index) {
+  index || (index = 1); // default to the first capturing group
+  var matches = [];
+  var match;
+  while (match = regex.exec(string)) {
+    matches.push(match[index]);
+  }
+  return matches;
+}
+
+  // intercept requests by listening to fetch event
+  self.addEventListener('fetch', function(event) {
+ 
+  // Cache, then network, then fallback for other urls
+  event.respondWith(
+    caches.match(event.request).then(function(response) {
+      return response || fetch(event.request);
+    }).catch(function() {
+      return caches.match('/page/content-not-available-offline');
+    })
+  );
+});
+
+
